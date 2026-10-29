@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI Task Planner</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f1;color:#18312c;font:16px/1.6 system-ui,sans-serif}main{max-width:760px;margin:60px auto;padding:0 24px}small,.muted{color:#5d7068}h1{font-size:42px;line-height:1.1;letter-spacing:-1.5px;margin:14px 0}section{background:white;padding:28px;border:1px solid #dbe3dc;border-radius:18px;margin:22px 0}label{display:block;margin:10px 0}input[type=password],textarea{width:100%;border:1px solid #aabdb3;border-radius:10px;padding:13px;font:inherit}textarea{resize:vertical;min-height:100px}button{background:#215d48;color:white;border:0;border-radius:9px;padding:13px 20px;font:600 15px system-ui;cursor:pointer;margin:10px 0}button:disabled{opacity:.5;cursor:wait}.task{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #edf0ed}.task input{width:20px;accent-color:#215d48;flex-shrink:0}.done{text-decoration:line-through;color:#6b7d73}progress{width:100%;accent-color:#215d48}#status{color:#9a3b25}#source{font-size:14px}footer{font-size:13px;text-align:center;margin:30px 0}@media(max-width:500px){main{margin-top:28px}h1{font-size:34px}section{padding:20px}}
+</style></head><body><main>
+<small>ONE GOAL. A FEW SMALL STEPS.</small><h1>AI Task Planner</h1><p class="muted">Turn something big into a plan you can actually finish.</p>
+<section><details><summary>Settings</summary><label><input id="demo" type="checkbox" checked> Demo mode — no AI or API key needed</label><div id="credentials" hidden><label for="key">OpenAI API key</label><input id="key" type="password" autocomplete="off" placeholder="Enter your own API key"><small>Your key is kept only in this page's memory. AI requests send it through this app's server to OpenAI, along with your goal and progress.</small></div></details>
+<form id="form"><label for="goal"><strong>What do you want to accomplish?</strong></label><textarea id="goal" maxlength="1000" required placeholder="Prepare for my math exam in 3 days."></textarea><button id="create">Create Plan</button></form><p id="status" role="status" aria-live="polite"></p></section>
+<section id="plan" hidden><small id="source"></small><h2 id="activeGoal"></h2><div id="tasks"></div><p id="count"></p><progress id="progress" max="1" value="0"></progress><button id="replan" type="button">Plan my remaining tasks</button><details id="history" hidden><summary>Previously completed</summary><ul id="completed"></ul></details></section>
+<footer>Built with Python + Flask · Progress lasts until you reload this page.</footer>
+</main><script>
+const $=id=>document.getElementById(id);let state={goal:'',tasks:[],completed:[],source:''};let busy=false;
+$('demo').onchange=()=>{$('credentials').hidden=$('demo').checked;};
+function render(){
+ $('plan').hidden=false;$('activeGoal').textContent=state.goal;$('source').textContent=state.source;$('tasks').replaceChildren();
+ state.tasks.forEach((task,i)=>{const label=document.createElement('label');label.className='task';const check=document.createElement('input');check.type='checkbox';check.checked=task.done;check.disabled=busy;const span=document.createElement('span');span.textContent=task.text;span.className=task.done?'done':'';check.onchange=()=>{state.tasks[i].done=check.checked;render();};label.append(check,span);$('tasks').append(label);});
+ const done=state.completed.length+state.tasks.filter(t=>t.done).length,total=state.completed.length+state.tasks.length;
+ $('count').textContent=done===total?'All done! You completed your plan.':`${done} of ${total} tasks complete`;$('progress').value=total?done/total:0;$('replan').disabled=busy||done===total;
+ $('history').hidden=!state.completed.length;$('completed').replaceChildren();state.completed.forEach(t=>{const li=document.createElement('li');li.textContent=t;$('completed').append(li);});
+}
+async function generate(replan=false){
+ if(busy)return;const goal=replan?state.goal:$('goal').value.trim();if(!goal){$('status').textContent='Enter a goal first.';return;}
+ const completed=replan?[...state.completed,...state.tasks.filter(t=>t.done).map(t=>t.text)]:[];
+ const remaining=replan?state.tasks.filter(t=>!t.done).map(t=>t.text):[];const demo=$('demo').checked;
+ if(!demo&&!$('key').value.trim()){$('status').textContent='Enter your API key in Settings, or use Demo mode.';return;}
+ busy=true;$('create').disabled=true;$('replan').disabled=true;if(state.tasks.length)render();$('status').textContent='Making your plan…';
+ try{let tasks;
+ if(demo){tasks=replan?remaining:[`Write down what success means for: ${goal}`,'Gather the materials you need.','Spend 20 minutes on the first small step.','Review your progress and finish the remaining work.'];}
+ else{const response=await fetch('/api/plan',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':$('key').value.trim()},body:JSON.stringify({goal,completed,remaining}),signal:AbortSignal.timeout(45000)});const data=await response.json();if(!response.ok)throw Error(data.error||'Could not create a plan.');if(!Array.isArray(data.tasks)||!data.tasks.length)throw Error('No usable tasks returned.');tasks=data.tasks;}
+ state={goal,completed,tasks:tasks.map(text=>({text,done:false})),source:demo?'DEMO TEMPLATE · NO AI USED':'AI-GENERATED PLAN'};$('status').textContent='';
+ }catch(error){$('status').textContent=error.name==='TimeoutError'?'Request timed out. Try again.':error.message;}
+ finally{busy=false;$('create').disabled=false;if(state.tasks.length)render();}
+}
+$('form').onsubmit=e=>{e.preventDefault();generate();};$('replan').onclick=()=>generate(true);
+</script></body></html>
